@@ -3,7 +3,8 @@ const axios = require("axios");
 const fs = require("fs");
 const path = require("path");
 const { baseURL } = require("../constant");
-const { log } = require("console");
+
+const PokemonHelper = require("../helpers/pokemonHelper");
 
 const dbPath = path.join(__dirname, "../db.json");
 
@@ -20,13 +21,7 @@ function getFibonacci(num) {
     n2 = 1,
     nextTerm;
 
-  // if (num === 0) {
-  //   sequence.push(0);
-  //   return sequence;
-  // }
-
   for (let i = 0; i <= num; i++) {
-    // console.log(n1);
     sequence.push(n1);
     nextTerm = n1 + n2;
     n1 = n2;
@@ -38,24 +33,21 @@ function getFibonacci(num) {
 
 const getMyPokemon = async (req, res) => {
   try {
-    const data = fs.readFileSync(dbPath);
-    const jsonData = JSON.parse(data);
+    const response = PokemonHelper.getAllPokemon();
 
     return res
       .status(200)
-      .json({ message: "Successful get my pokemon", data: jsonData });
-  } catch (error) {}
+      .json({ message: "Successful get my pokemon", data: response.pokemon });
+  } catch (error) {
+    return res.status(500).json({ message: "Something went wrong!" });
+  }
 };
 
 const getDetailPokemon = async (req, res) => {
   try {
     const id = req.params.id;
-    const data = fs.readFileSync(dbPath);
-    const jsonData = JSON.parse(data);
 
-    const response = jsonData?.pokemon?.filter((pokemon) => {
-      return pokemon.id === Number(id);
-    });
+    const response = PokemonHelper.getOnePokemon(id);
 
     if (response.length === 0)
       return res.status(404).json({ message: "Pokemon not found!" });
@@ -63,12 +55,15 @@ const getDetailPokemon = async (req, res) => {
     return res
       .status(200)
       .json({ message: "Successful get detail pokemon", data: response });
-  } catch (error) {}
+  } catch (error) {
+    return res.status(500).json({ message: "Something went wrong!" });
+  }
 };
 
 const catchPokemon = async (req, res) => {
   try {
     const name = req.params.name;
+
     const chance = [true, false];
     const isSuccess = Math.floor(Math.random() * chance.length);
 
@@ -81,11 +76,10 @@ const catchPokemon = async (req, res) => {
         weight: response.data.weight,
       };
 
-      const data = fs.readFileSync(dbPath);
-      const jsonData = JSON.parse(data);
-      const id = jsonData.pokemon.length;
+      const { pokemon } = PokemonHelper.getAllPokemon();
+      const id = pokemon[pokemon.length - 1].id + 1;
 
-      jsonData.pokemon.push({
+      pokemon.push({
         id,
         name: modifiedRes.name,
         nickname: modifiedRes.nickname,
@@ -93,7 +87,7 @@ const catchPokemon = async (req, res) => {
         weight: modifiedRes.weight,
       });
 
-      fs.writeFileSync(dbPath, JSON.stringify(jsonData));
+      fs.writeFileSync(dbPath, JSON.stringify({ pokemon }));
 
       return res
         .status(200)
@@ -103,78 +97,95 @@ const catchPokemon = async (req, res) => {
     return res.status(200).json({ message: "Pokemon running away!" });
   } catch (error) {
     console.log(error);
+    if (error.response) {
+      return res
+        .status(error.response.status)
+        .json({ message: error.response.data });
+    }
+
+    return res.status(500).json({ message: "Something went wrong!" });
   }
 };
 
 const releasePokemon = async (req, res) => {
   try {
     const id = req.params.id;
-    const chance = Math.floor(Math.random() * 10);
 
+    const pokemonExist = PokemonHelper.getOnePokemon(id);
+    if (pokemonExist.length === 0)
+      return res.status(404).json({ message: "Pokemon not found" });
+
+    const chance = Math.floor(Math.random() * 10);
     const isSuccess = isPrime(chance);
 
     if (isSuccess) {
-      const data = fs.readFileSync(dbPath);
-      const jsonData = JSON.parse(data);
+      const allPokemon = PokemonHelper.getAllPokemon();
 
-      const pokemonData = jsonData?.pokemon?.filter((pokemon) => {
-        return pokemon.id !== Number(id);
+      const currentPokemon = allPokemon?.pokemon?.filter(
+        (pokemon) => pokemon.id !== Number(id)
+      );
+
+      fs.writeFileSync(dbPath, JSON.stringify({ pokemon: currentPokemon }));
+
+      return res.status(200).json({
+        message: "Pokemon successfully released",
+        data: currentPokemon,
       });
-
-      fs.writeFileSync(dbPath, JSON.stringify({ pokemon: pokemonData }));
-
-      return res
-        .status(200)
-        .json({ message: "Pokemon successfully released", data: pokemonData });
     }
 
     return res.status(200).json({ message: "Pokemon failed to release!" });
   } catch (error) {
-    console.log(error);
+    return res.status(500).json({ message: "Something went wrong!" });
   }
 };
 
 const renamePokemon = async (req, res) => {
-  const id = req.params.id;
-  const nickname = req.body.nickname;
+  try {
+    const id = req.params.id;
+    const nickname = req.body.nickname;
 
-  const data = fs.readFileSync(dbPath);
-  const jsonData = JSON.parse(data);
+    const pokemonExist = PokemonHelper.getOnePokemon(id);
+    if (pokemonExist.length === 0)
+      return res.status(404).json({ message: "Pokemon not found" });
 
-  const exceptTarget = jsonData?.pokemon.filter((pokemon) => {
-    return pokemon.id !== Number(id);
-  });
+    const allPokemon = PokemonHelper.getAllPokemon();
+    const exceptTarget = allPokemon?.pokemon.filter((pokemon) => {
+      return pokemon.id !== Number(id);
+    });
 
-  const sameNick = exceptTarget.reduce((result, pokemon) => {
-    if (pokemon.nickname.includes(nickname)) {
-      result.push(pokemon);
-    }
-    return result;
-  }, []);
+    const sameNick = exceptTarget.reduce((result, pokemon) => {
+      if (pokemon.nickname.includes(nickname)) {
+        result.push(pokemon);
+      }
+      return result;
+    }, []);
 
-  const countSame = sameNick.length;
+    const countSame = sameNick.length;
+    const lastSeq = getFibonacci(countSame);
 
-  const lastSeq = getFibonacci(countSame);
+    const response = allPokemon?.pokemon?.map((pokemon) => {
+      if (pokemon.id === Number(id)) {
+        return {
+          id: pokemon.id,
+          name: pokemon.name,
+          nickname: req.body.nickname + "-" + lastSeq,
+          height: pokemon.height,
+          weight: pokemon.weight,
+        };
+      }
+      return pokemon;
+    });
 
-  const response = jsonData?.pokemon?.map((pokemon) => {
-    if (pokemon.id === Number(id)) {
-      return {
-        id: pokemon.id,
-        name: pokemon.name,
-        nickname: req.body.nickname + "-" + lastSeq,
-        height: pokemon.height,
-        weight: pokemon.weight,
-      };
-    }
-    return pokemon;
-  });
+    fs.writeFileSync(dbPath, JSON.stringify({ pokemon: response }));
 
-  fs.writeFileSync(dbPath, JSON.stringify({ pokemon: response }));
-
-  return res.status(200).json({
-    message: "Pokemon successfully renamed!",
-    data: { pokemon: response },
-  });
+    return res.status(200).json({
+      message: "Pokemon successfully renamed!",
+      data: response,
+    });
+  } catch (error) {
+    console.log(error);
+    return res.status(500).json({ message: "Something went wrong!" });
+  }
 };
 
 Router.get("/my-pokemon", getMyPokemon);
